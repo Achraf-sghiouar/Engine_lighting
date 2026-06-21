@@ -15,6 +15,7 @@ from models.domain import Project, ProjectLine
 from ingestion.extractors.excel import extract_from_excel
 from ingestion.pro_builder import build_pro
 from workflow.router import router as workflow_router
+from matching.candidates import get_candidates as get_candidates_for_pro
 
 app = FastAPI(title="LAE v4 Substitution Engine")
 
@@ -26,7 +27,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Setup basic logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,6 @@ async def add_correlation_id_and_log(request: Request, call_next):
     correlation_id = request.headers.get("X-Correlation-ID", str(uuid.uuid4()))
     request.state.correlation_id = correlation_id
     logger.info(f"[{correlation_id}] {request.method} {request.url.path}")
-    
     try:
         response = await call_next(request)
         response.headers["X-Correlation-ID"] = correlation_id
@@ -63,15 +62,13 @@ def read_root():
 
 # ========== Fonction pour exécuter le workflow en arrière-plan ==========
 async def run_workflow(app_graph, state_input, config, line_id: str, project_id: str):
-    """Exécute le workflow LangGraph en arrière-plan et met à jour le statut."""
+    logger.info(f"🚀 Starting workflow for line {line_id}")
     try:
         async for event in app_graph.astream(state_input, config):
-            # On peut traiter les événements intermédiaires si besoin
-            pass
-        logger.info(f"Workflow completed for line {line_id}")
+            logger.info(f"📦 Workflow event for line {line_id}: {event}")
+        logger.info(f"✅ Workflow completed for line {line_id}")
     except Exception as e:
-        logger.error(f"Workflow failed for line {line_id}: {e}")
-        # Mettre à jour le statut de la ligne en cas d'échec
+        logger.error(f"❌ Workflow failed for line {line_id}: {e}", exc_info=True)
         from db.database import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(ProjectLine).where(ProjectLine.id == line_id))
@@ -94,36 +91,53 @@ async def upload_file(
         
     filename_lower = file.filename.lower() if file.filename else ""
     
-    # Extraction selon le type de fichier
     if filename_lower.endswith(".pdf"):
         from ingestion.extractors.pdf import extract_from_pdf
         raw_lines = extract_from_pdf(file_path)
     else:
         raw_lines = extract_from_excel(file_path)
     
-    # Vérifier que des lignes ont été extraites
-    if not raw_lines:
+    # Filtrer les lignes invalides (ex: en-têtes mal extraits)
+    valid_lines = []
+    for item in raw_lines:
+        mark = item.mark.value if item.mark else ""
+        desc = item.description.value if item.description else ""
+        if mark and desc and not mark.lower() in ("code", "codeluminaire", "fabricant", "modèle"):
+            valid_lines.append(item)
+        else:
+            logger.warning(f"Ligne ignorée : mark='{mark}', desc='{desc}'")
+    
+    if not valid_lines:
         return JSONResponse(
             status_code=400,
-            content={"error": "No lines could be extracted from the file. Please check the format."}
+            content={"error": "No valid lines could be extracted. Please check the file format."}
         )
     
-    # Créer le projet
     project = Project(name=file.filename, status="processing")
     db.add(project)
     await db.flush()
     
     from workflow.graph import app_graph
     
-    # Traiter chaque ligne
-    for item in raw_lines:
+    for item in valid_lines:
         pro = build_pro(item)
         thread_id = str(uuid.uuid4())
+        
+        # Convertir la quantité en entier (avec validation)
+        qty_str = item.quantity.value if item.quantity else "1"
+        try:
+            qty = int(qty_str)
+            if qty < 0 or qty > 9999:
+                logger.warning(f"Quantité suspecte pour {item.mark.value}: {qty} → remplacée par 1")
+                qty = 1
+        except ValueError:
+            logger.warning(f"Quantité non convertible pour {item.mark.value}: {qty_str} → remplacée par 1")
+            qty = 1
         
         line = ProjectLine(
             project_id=project.id,
             mark=item.mark.value if item.mark else None,
-            quantity=item.quantity.value if item.quantity else 1,
+            quantity=qty,
             description=item.description.value if item.description else None,
             specified_sku=item.specified_sku.value if item.specified_sku else None,
             pro_json=pro.model_dump(),
@@ -133,20 +147,36 @@ async def upload_file(
         db.add(line)
         await db.flush()
         
-        # Lancer le workflow en arrière-plan
+        # --- Récupérer les candidats pour cette ligne ---
+        try:
+            candidates = await get_candidates_for_pro(db, pro)
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des candidats pour {item.mark}: {e}")
+            candidates = []
+        
+        # --- Construire l'état initial du workflow ---
         config = {"configurable": {"thread_id": thread_id}}
         state_input = {
-            "project_id": str(project.id),
-            "line_id": str(line.id),
-            "pro": pro.model_dump(),
-            "status": "processing"
+         "project_id": str(project.id),
+        "line_id": str(line.id),
+        "pro": pro.model_dump(),
+        "status": "processing",
+        "candidates": candidates,                
+        "filtered_candidates": [],
+        "scored_candidates": [],
+        "final_candidates": [],
+        "traces": [],
+        "human_selection": "",
+        "manager_approval_required": False,
+        "final_bom": {}
         }
+        
         background_tasks.add_task(run_workflow, app_graph, state_input, config, line.id, project.id)
-            
+    
     await db.commit()
-    return {"project_id": project.id, "lines_extracted": len(raw_lines)}
+    return {"project_id": project.id, "lines_extracted": len(valid_lines)}
 
-# ========== Endpoint pour récupérer les détails d'un projet ==========
+# ========== Endpoints de récupération ==========
 @app.get("/projects/{project_id}")
 async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
     query = select(Project).where(Project.id == project_id).options(selectinload(Project.lines))
@@ -154,7 +184,6 @@ async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
     project = result.scalar_one_or_none()
     if not project:
         return JSONResponse(status_code=404, content={"error": "Not found"})
-        
     return {
         "id": str(project.id),
         "name": project.name,
@@ -171,7 +200,6 @@ async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
         ]
     }
 
-# ========== Endpoint pour récupérer les détails d'une ligne ==========
 @app.get("/lines/{line_id}")
 async def get_line(line_id: str, db: AsyncSession = Depends(get_db)):
     query = select(ProjectLine).where(ProjectLine.id == line_id)
@@ -179,11 +207,9 @@ async def get_line(line_id: str, db: AsyncSession = Depends(get_db)):
     line = result.scalar_one_or_none()
     if not line:
         return JSONResponse(status_code=404, content={"error": "Not found"})
-        
-    # Récupérer les candidats depuis l'état du workflow LangGraph
+    
     from workflow.graph import app_graph
     config = {"configurable": {"thread_id": line.thread_id}}
-    
     try:
         state = await app_graph.aget_state(config)
     except Exception as e:
@@ -205,7 +231,7 @@ async def get_line(line_id: str, db: AsyncSession = Depends(get_db)):
                     "final_score": c.get("final_score", 0),
                     "risk_flags": c.get("risk_flags", [])
                 })
-            
+    
     return {
         "id": str(line.id),
         "mark": line.mark,
