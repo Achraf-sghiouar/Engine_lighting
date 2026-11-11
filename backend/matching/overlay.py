@@ -28,23 +28,25 @@ async def apply_overlay(scored_candidates: List[Dict[str, Any]], pro: PRO) -> Li
         c_margin = erp_info.get("margin", c.margin)
         c_stock = erp_info.get("stock", c.supplier_stock)
         
+        commercial = pro.commercial if hasattr(pro, "commercial") else pro.get("commercial", {})
+        
         # 1. Tier Multiplier
         tier_multi = 1.0
-        preferred_tiers = pro.commercial.get("preferred_tiers", [2])
+        preferred_tiers = commercial.get("preferred_tiers", [2]) if isinstance(commercial, dict) else (commercial.preferred_tiers or [2])
         if preferred_tiers and c.tier not in preferred_tiers:
              diff = abs(c.tier - preferred_tiers[0])
              if diff == 1: tier_multi = 0.92
              elif diff >= 2: tier_multi = 0.80
              
         # 2. Margin Multiplier
-        target_margin = pro.commercial.get("target_margin", 0.20)
+        target_margin = commercial.get("target_margin", 0.20) if isinstance(commercial, dict) else getattr(commercial, "target_margin", 0.20)
         margin_multi = 1.0
         if c_margin > target_margin + 0.05: margin_multi = 1.05
         elif c_margin < target_margin - 0.05: margin_multi = 0.90
         
         # Stock penalty
         stock_penalty = 0
-        req_qty = pro.commercial.get("quantity", 1)
+        req_qty = commercial.get("quantity", 1) if isinstance(commercial, dict) else getattr(commercial, "quantity", 1)
         if c_stock < req_qty:
             stock_penalty = (1 - (max(0, c_stock) / req_qty)) * 8
             

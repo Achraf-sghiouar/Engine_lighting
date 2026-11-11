@@ -2,8 +2,7 @@ import pandas as pd
 from typing import List
 from models.schemas import RawLineItem, ExtractedField, SourceRef
 
-def extract_from_excel(file_path: str) -> List[RawLineItem]:
-    df = pd.read_excel(file_path)
+def extract_from_dataframe(df: pd.DataFrame) -> List[RawLineItem]:
     # Simple heuristic extraction for MVP
     # Map common column names to our expected fields
     col_mapping = {}
@@ -44,3 +43,18 @@ def extract_from_excel(file_path: str) -> List[RawLineItem]:
         items.append(item)
         
     return items
+
+def extract_from_excel(file_path: str) -> List[RawLineItem]:
+    df = pd.read_excel(file_path)
+    return extract_from_dataframe(df)
+
+def extract_from_word(file_path: str) -> List[RawLineItem]:
+    import docx
+    doc = docx.Document(file_path)
+    all_items = []
+    for table in doc.tables:
+        data = [[cell.text.strip() for cell in row.cells] for row in table.rows]
+        if len(data) > 1:
+            df = pd.DataFrame(data[1:], columns=data[0])
+            all_items.extend(extract_from_dataframe(df))
+    return all_items

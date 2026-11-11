@@ -2,8 +2,6 @@ from typing import Dict, Any, List, TypedDict
 from langgraph.graph import StateGraph, END   # ← IMPORT OBLIGATOIRE
 from models.schemas import PRO
 from models.domain import Product
-from matching.hard_filter import apply_hard_filters
-from matching.soft_scoring import score_candidates
 from matching.overlay import apply_overlay
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -25,20 +23,33 @@ async def spec_parser(state: GraphState):
     return state
 
 async def hard_constraint_filter(state: GraphState):
-    candidates = state.get("candidates", [])
-    filtered, traces = apply_hard_filters(candidates, state["pro"])
-    state["candidates"] = candidates
-    state["filtered_candidates"] = filtered
-    state["traces"] = traces
-    if not filtered:
+    from matching.pipeline import charger_tous_les_produits, matcher_luminaire
+    from db.database import AsyncSessionLocal
+    
+    async with AsyncSessionLocal() as db:
+        tous_les_produits = await charger_tous_les_produits(db)
+        
+    pro_json = state.get("pro")
+    if not isinstance(pro_json, dict):
+        if hasattr(pro_json, "model_dump"):
+            pro_json = pro_json.model_dump()
+        else:
+            pro_json = {}
+            
+    candidats_matches = matcher_luminaire(pro_json, tous_les_produits)
+    
+    if not candidats_matches:
         state["status"] = "no_match"
+        state["traces"] = [{"step": "hard_filter", "message": "Aucun substitut ne respecte toutes les contraintes de filtrage (Hard Filter)."}]
+    else:
+        state["status"] = "matched"
+        
+    state["scored_candidates"] = candidats_matches
+    state["final_candidates"] = candidats_matches
     return state
 
 async def match_brain(state: GraphState):
-    if state["status"] == "no_match":
-        return state
-    scored = score_candidates(state["filtered_candidates"], state["pro"])
-    state["scored_candidates"] = scored
+    # La logique est maintenant regroupée dans hard_constraint_filter (via matcher_luminaire)
     return state
 
 async def tier_strategist(state: GraphState):
@@ -108,4 +119,4 @@ workflow.add_edge("finalize_bom", END)
 # ========== Checkpointer (mémoire pour le développement) ==========
 checkpointer = MemorySaver()
 
-app_graph = workflow.compile(checkpointer=checkpointer)
+app_graph = workflow.compile(checkpointer=checkpointer, interrupt_before=["human_approval_gate"])

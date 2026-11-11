@@ -62,8 +62,10 @@ async def resume_workflow(thread_id: str, req: ResumeRequest):
         "status": req.decision
     }
     
-    # Resume the graph
-    async for event in app_graph.astream(resume_data, config, as_node="human_approval_gate"): # Assuming human_approval_gate is next
+    # Update state and resume the graph
+    await app_graph.aupdate_state(config, resume_data)
+    
+    async for event in app_graph.astream(None, config):
         pass
         
     new_state = await app_graph.aget_state(config)

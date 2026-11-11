@@ -34,6 +34,7 @@ class Product(Base):
     # Mechanical
     cutout_in = Column(Float, nullable=True)
     ip_rating = Column(Integer) # e.g. 20, 65
+    ik_rating = Column(Integer, nullable=True) # e.g. 8, 10
     finish = Column(String, nullable=True)
     trim = Column(String, nullable=True)
     
@@ -56,6 +57,9 @@ class Project(Base):
     name = Column(String, nullable=False)
     status = Column(String, default="draft")
     created_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    total_items = Column(Integer, default=0)
+    processed_items = Column(Integer, default=0)
     
     lines = relationship("ProjectLine", back_populates="project", cascade="all, delete-orphan")
 
@@ -94,3 +98,16 @@ class DecisionTrace(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     line = relationship("ProjectLine", back_populates="traces")
+
+class ExtractionFeedback(Base):
+    __tablename__ = "extraction_feedback"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    line_id = Column(UUID(as_uuid=True), ForeignKey("project_lines.id"), nullable=False)
+    field_name = Column(String, nullable=False)
+    original_value = Column(String)
+    corrected_value = Column(String)
+    confidence = Column(String, nullable=True)
+    actor = Column(String, default="user")
+    created_at = Column(DateTime, default=datetime.utcnow)
+

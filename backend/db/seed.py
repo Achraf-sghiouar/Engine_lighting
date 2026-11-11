@@ -59,6 +59,7 @@ def generate_mock_products():
             efficacy=random.uniform(90.0, 150.0),
             cutout_in=random.choice([4.0, 6.0, 8.0]) if category == "downlight" else None,
             ip_rating=random.choice([20, 44, 65]),
+            ik_rating=random.choice([2, 5, 8, 10]) if category in ["outdoor", "highbay"] else None,
             finish=random.choice(["white", "black", "silver", None]),
             trim=random.choice(["round", "square", "flangeless", None]),
             certifications=certs,

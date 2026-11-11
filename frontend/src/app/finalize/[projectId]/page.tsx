@@ -1,0 +1,131 @@
+"use client"
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+
+export default function FinalizePage({ params }: { params: { projectId: string } }) {
+  const [project, setProject] = useState<any>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    const fetchProject = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+        const res = await fetch(`${apiUrl}/projects/${params.projectId}`);
+        if (res.ok) {
+          const data = await res.json();
+          // Fetch final BOM from each line's state
+          const updatedLines = await Promise.all(data.lines.map(async (line: any) => {
+            if (line.thread_id) {
+              const stateRes = await fetch(`${apiUrl}/workflow/runs/${line.thread_id}/state`);
+              if (stateRes.ok) {
+                const stateData = await stateRes.json();
+                if (stateData.values?.final_bom) {
+                  line.final_bom = stateData.values.final_bom;
+                }
+              }
+            }
+            return line;
+          }));
+          data.lines = updatedLines;
+          setProject(data);
+        }
+      } catch (err) { 
+        console.error(err);
+      }
+    };
+    fetchProject();
+  }, [params.projectId]);
+
+  const handleExportPDF = async () => {
+    try {
+      const element = document.getElementById('report-content');
+      if (!element) {
+        console.error('Report content element not found');
+        return;
+      }
+      const html2pdf = (await import('html2pdf.js')).default;
+      const opt = {
+        margin: 10,
+        filename: `Substitution_Report_${project.name}.pdf`,
+        image: { type: 'jpeg' as const, quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'landscape' as const }
+      };
+      html2pdf().set(opt).from(element).save();
+    } catch (e) {
+      console.error("PDF Export failed", e);
+      alert("Failed to export PDF.");
+    }
+  };
+
+  if (!project) return <div style={{ padding: '2rem' }}>Loading report...</div>;
+
+  const totalCO2 = project.lines.reduce((acc: number, line: any) => acc + (line.final_bom?.co2_emissions_kg || 0), 0);
+
+  return (
+    <div>
+      <button className="btn" onClick={() => router.push(`/project/${project.id}`)} style={{ marginBottom: '1rem', background: 'var(--border)' }}>
+        ← Back
+      </button>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+        <h1>Final Bill of Materials</h1>
+        <button className="btn" style={{ background: 'var(--primary)' }} onClick={handleExportPDF}>
+          Export PDF
+        </button>
+      </div>
+
+      <div id="report-content" style={{ background: 'var(--card-bg)', padding: '2rem', borderRadius: '16px' }}>
+        <h2 style={{ borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '2rem' }}>
+          Project: {project.name}
+        </h2>
+
+        <div style={{ display: 'flex', gap: '2rem', marginBottom: '2rem' }}>
+          <div className="card" style={{ flex: 1, background: 'rgba(56, 189, 248, 0.1)', borderColor: 'rgba(56, 189, 248, 0.3)' }}>
+            <h3>Total Items</h3>
+            <p style={{ fontSize: '2rem', fontWeight: 700 }}>{project.lines.length}</p>
+          </div>
+          <div className="card" style={{ flex: 1, background: 'rgba(52, 211, 153, 0.1)', borderColor: 'rgba(52, 211, 153, 0.3)' }}>
+            <h3>Estimated CO₂ Impact</h3>
+            <p style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--success)' }}>{totalCO2.toFixed(1)} kg</p>
+          </div>
+        </div>
+
+        <table className="matrix" style={{ width: '100%' }}>
+          <thead>
+            <tr>
+              <th>Mark</th>
+              <th>Description</th>
+              <th>Original SKU</th>
+              <th>Selected Substitute</th>
+              <th>Quantity</th>
+              <th>Margin</th>
+              <th>CO₂ (kg)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {project.lines.map((line: any) => (
+              <tr key={line.id}>
+                <td><strong>{line.mark}</strong></td>
+                <td>{line.description}</td>
+                <td>{line.specified_sku || 'N/A'}</td>
+                <td>
+                  <span className="badge badge-success">{line.final_bom?.sku || 'Not Selected'}</span>
+                </td>
+                <td>{line.quantity}</td>
+                <td style={{ color: 'var(--success)' }}>
+                  {line.final_bom?.unit_margin ? (line.final_bom.unit_margin * 100).toFixed(1) + '%' : 'N/A'}
+                </td>
+                <td>{line.final_bom?.co2_emissions_kg?.toFixed(1) || 'N/A'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div style={{ marginTop: '3rem', fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+          Generated by LAE Intelligent Substitution Engine
+        </div>
+      </div>
+    </div>
+  );
+}
