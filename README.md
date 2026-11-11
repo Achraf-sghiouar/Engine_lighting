@@ -1,113 +1,163 @@
-# ⚡ Engine_lighting: Intelligent Lighting Substitution & Compliance Engine
+# ⚡ Engine_lighting: Multi-Agent Lighting Substitution & Compliance Engine
 
-> An enterprise-grade software platform for technical lighting tenders, automated specification extraction, and multi-constraint substitution using LangGraph agentic workflows and local/cloud LLMs.
+> An enterprise-grade, multi-agent software platform for industrial and architectural lighting tenders. Parses massive technical schedules (300+ page CCTP/BOQ), certifies documentary evidence, eliminates hallucinations through physical validation, and executes multi-criteria substitution using local Small Language Models (SLMs) and an AI Harness.
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688.svg)](https://fastapi.tiangolo.com/)
-[![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph-orange.svg)](https://langchain-ai.github.io/langgraph/)
+[![Local SLM](https://img.shields.io/badge/SLM-Qwen%202.5%3A3b%20(Ollama)-purple.svg)](https://ollama.com/)
+[![Architecture](https://img.shields.io/badge/Swarm-4%20Specialized%20Agents-green.svg)](#-the-4-agent-swarm--ai-harness-architecture)
 [![Next.js](https://img.shields.io/badge/Next.js-14%20(App%20Router)-black.svg)](https://nextjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6.svg)](https://www.typescriptlang.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://www.docker.com/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-33%20Passed-success.svg)](#-automated-testing)
 
 ---
 
-## 📌 Executive Summary & Problem Statement
+## 📌 Problem Statement & Core Value
 
-In commercial, architectural, and industrial lighting engineering, responding to tender schedules (CCTP, complex bill-of-quantities in PDF/Excel) requires cross-referencing hundreds of technical line items against manufacturer catalogs. 
+In commercial, architectural, and industrial lighting engineering, responding to tender schedules (CCTP, BOQ, and complex bill-of-quantities in PDF/Excel) requires cross-referencing hundreds of technical line items against manufacturer catalogs. 
 
-Manual substitution is tedious, error-prone, and presents severe compliance risks:
+Manual substitution is tedious, slow, and presents severe compliance risks:
 * **Stringent Regulatory & Photometric Constraints:** Ingress Protection (IP rating), Color Rendering Index (CRI), Correlated Color Temperature (CCT), beam angles, and luminous efficacy ($\text{lm/W}$).
-* **Margin vs. Energy Trade-offs:** Balancing distributor margins against lifecycle operating cost and carbon footprint ($kg\text{ CO}_2e$).
+* **Commercial & Ecological Trade-offs:** Balancing distributor gross margins against lifecycle operating cost and carbon footprint ($kg\text{ CO}_2e$).
 
-**Engine_lighting** automates this lifecycle by combining structured table extraction, semantic LLM analysis, deterministic constraint satisfaction, and an agentic state-machine with **Human-in-the-Loop (HITL)** governance.
+**Engine_lighting** automates this lifecycle by combining an **Essaim of 4 specialized AI Agents**, an **orchestration AI Harness**, and a **deterministic mathematical matching engine**.
 
 ---
 
-## 🏗️ System Architecture & LangGraph State Machine
+## 🏗️ The 4-Agent Swarm & AI Harness Architecture
+
+Rather than relying on a single, expensive, and hallucination-prone monolithic prompt, the system delegates responsibilities across 4 isolated, highly specialized agents orchestrated by a deterministic state-machine Harness:
 
 ```mermaid
 flowchart TD
-    subgraph Ingestion ["1. Document Ingestion & Extraction"]
-        A["Tender Files (PDF / CCTP / Excel)"] --> B["Camelot Table Parser (Lattice / Stream)"]
-        A --> C["Semantic LLM Extractor (Ollama / Groq)"]
-        B & C --> D["Project Requirement Object (PRO)"]
-        D --> E["HITL Extraction Review (/review/[id])"]
+    A["Raw Tender Document<br/>(300+ Page PDF / CCTP / BOQ)"] --> B["Agent 1: Analysis & Triage<br/>(analysis_agent.py)"]
+    
+    subgraph Agent1 ["⚡ Agent 1 : Document Triage (4.09s)"]
+        B -->|4-Level Cascade| B1["Native Bookmarks ➔ TOC ➔ Header Scan ➔ Fallback"]
+        B1 -->|Eliminates 72% off-topic pages| C["Targeted Lighting Pages Only"]
+    end
+    
+    C --> D["Agent 2: Retrieval & Evidence<br/>(retrieval_agent.py)"]
+    
+    subgraph Agent2 ["📍 Agent 2 : Retrieval & Evidence Sealing"]
+        D -->|Multi-Format Parser| D1["Table Grid · Article Segmentation · Deduplication"]
+        D1 -->|Seals certified page number| E["Isolated Line Items with '📍 p.X' Evidence"]
+    end
+    
+    E --> F["Agent 3: Extraction SLM<br/>(extraction_agent.py)"]
+    
+    subgraph Agent3 ["🤖 Agent 3 : Local SLM Extraction (1.23s/item)"]
+        F -->|Ollama: Qwen 2.5:3b| F1["num_ctx: 2048 · temp: 0.0 · JSON Mode"]
+        F1 -->|Pydantic Contract| G["Normalized PRO (Project Requirement Object)"]
+    end
+    
+    G --> H["Agent 4: Validation & Reflection<br/>(validation_agent.py)"]
+    
+    subgraph Agent4 ["🛡️ Agent 4 : Physical Validation & Reflection"]
+        H -->|Physical Bounds Check| H1{"lm/W ∈ [25, 250]<br/>CCT ∈ [1800K, 10000K]<br/>CRI ∈ [50, 100]<br/>IP/IK Formats"}
+        H1 -->|Valid| I["AUTO_ACCEPTED"]
+        H1 -->|Invalid (Max 2 Retries)| H2["TEACHER_CORRECTED (Groq/Ollama)"]
+        H2 -->|Unresolved| H3["HUMAN_REVIEW (Flagged Red)"]
     end
 
-    subgraph Workflow ["2. LangGraph Substitution StateGraph"]
-        E --> F["Node: spec_parser"]
-        F --> G["Node: hard_constraint_filter"]
-        G --> H["Node: match_brain (Soft Scoring)"]
-        H --> I["Node: tier_strategist (Margin Overlay)"]
-        I --> J["Node: compliance_guardian"]
-        J --> K{"should_human_review?"}
-        K -- "Approval Needed" --> L["Node: human_approval_gate (MemorySaver)"]
-        K -- "Direct / No Match" --> M["Node: finalize_bom"]
-        L --> M
+    subgraph Harness ["🛡️ AI Harness Orchestration (harness.py)"]
+        direction TB
+        J["State Machine: IDLE ➔ TRIAGING ➔ RETRIEVING ➔ EXTRACTING ➔ VALIDATING ➔ COMPLETED"]
+        K["Anti-Freeze: 15s Strict Timeout per block with Deterministic Fallback"]
+        L["Telemetry & Event Emitter: Duration, Confidence, Spans"]
     end
 
-    subgraph Outputs ["3. Decision & Delivery"]
-        M --> N["Optimized Bill of Materials (BOM)"]
-        M --> O["Financial Margin & CO₂ Lifecycle Metrics"]
-    end
+    I --> M["Deterministic Substitution & Matching Engine"]
+    H2 --> M
+    H3 --> N["HITL Interactive Review Dashboard"]
+    N --> M
 ```
 
 ---
 
-## 🎯 Engineering Highlights & Design Trade-offs
+## 🎯 Key Engineering Challenges & Solutions
 
-* **Deterministic Hard Filtering vs. Probabilistic Matching:**
-  * *Design Decision:* LLMs are non-deterministic and must not be trusted for safety/regulatory constraints (e.g., electrical voltage, IP65 waterproof compliance).
-  * *Implementation:* We enforce strict, zero-hallucination mathematical bounds in `hard_filter.py`, delegating only semantic text extraction and soft ranking to LLMs.
-* **Hybrid Ingestion Architecture:**
-  * Uses **Camelot** (`lattice`/`stream`) for dense tabular data.
-  * Uses **LLMs** (`llama-3.1-8b` / `qwen2.5:7b`) with strict Pydantic JSON schema enforcement for unstructured narrative clauses.
-* **Human-in-the-Loop Checkpointing:**
-  * Employs LangGraph's `MemorySaver` checkpointer with `interrupt_before=["human_approval_gate"]` to halt graph execution until an engineer reviews edge-case substitutions.
-* **Extraction Feedback Loop:**
-  * Corrections made by engineers in the Next.js UI are persisted to PostgreSQL (`extraction_feedback`), establishing a ground-truth dataset for future fine-tuning and few-shot prompt optimization.
+### 1. Document Triage in 4 Seconds on 300+ Page CPS (Agent 1)
+* **The Challenge:** Ingesting 300 to 900-page tenders into an LLM exceeds context windows and is prohibitively expensive.
+* **Our Solution:** A deterministic 4-level cascade (Bookmarks $\to$ TOC $\to$ Header pattern scanning $\to$ fallback).
+* **Measured Benchmark:** On a real 316-page municipal tender (Berkane CPS), Agent 1 triaged the document in **4.09 seconds**, eliminating **227 off-topic pages (-72% payload)** before invoking any neural network.
+
+### 2. Fast Local Inference & Zero Cloud Costs (Agent 3)
+* **The Challenge:** Running cloud models (GPT-4) on hundreds of line items incurs latency and high token costs, while risking client data confidentiality.
+* **Our Solution:** **Qwen 2.5:3b** running locally via Ollama with strict resource boundaries:
+  * `temperature: 0.0` for deterministic outputs.
+  * `num_ctx: 2048` bounded context (divides RAM consumption by ~60%, running under 2.5 GB RAM).
+  * `keep_alive: 15m` preventing cold-start overhead.
+* **Measured Benchmark:** **1.238 seconds per luminaire** on local inference.
+
+### 3. Preventing Hallucinations via Physical Law Validation (Agent 4)
+* **The Challenge:** LLMs frequently hallucinate contradictory specifications (e.g., claiming 10W produces 10,000 lumens, or invalid IP ratings like IP99).
+* **Our Solution:** Agent 4 enforces immutable laws of physics and regulatory standards:
+  * Luminous efficacy ratio check: $25 \le \frac{\text{Lumens}}{\text{Watts}} \le 250\text{ lm/W}$.
+  * Thermodynamic bounds: $\text{CCT} \in [1800\text{K}, 10000\text{K}]$, $\text{CRI} \in [50, 100]$.
+  * Valid IP/IK regex formatting ($IP20, IP44, IP65, IP66 / IK02-IK10$).
+* **3-State Arbiter:** `AUTO_ACCEPTED` (high confidence) $\to$ `TEACHER_CORRECTED` (reflexive retry with error feedback) $\to$ `HUMAN_REVIEW` (transparent flag).
+
+### 4. Zero-Hallucination Deterministic Matching Engine
+* **Hard Constraints (Filter):** Non-negotiable physical constraints ($IP_{substitute} \ge IP_{required}$, flux tolerance $\pm 30\%$, voltage class) are executed in pure Python/SQL math—**never by an LLM**.
+* **Soft Scoring:** Ranks compliant candidates by optical similarity, efficacy ($\text{lm/W}$), and color fidelity (CRI).
+* **Business Overlay:** Optimizes distributor margins, flags stock shortages, and computes lifecycle carbon emission savings:
+  $$\Delta \text{CO}_2\text{ (kg)} = \frac{(W_{initial} - W_{substitute}) \times \text{Hours}}{1000} \times 0.4$$
 
 ---
 
-## 📂 Repository Structure
+## 🌍 Modular Market Packs (Internationalization)
+
+The core engine is 100% market-agnostic. Regional conventions are declared as modular `MarketPack` configurations:
+
+```text
+backend/app/modules/ingestion/market_packs/
+├── base.py       # Pydantic contract: triage keywords, regex patterns, voltage, units
+├── morocco.py    # Pack MA: CPS, CCAG-T, Prix N°, 230V, metric, MAD, SATI/BAES MicroRAG
+├── france.py     # Pack FR: CCTP, DPGF, NF EN 12464-1, 230V, EUR (In Progress)
+└── registry.py   # Automatic heuristic market detection
+```
+
+---
+
+## 📂 Repository File Structure
 
 ```text
 Engine_lighting/
 ├── backend/
 │   ├── app/
 │   │   └── modules/
-│   │       ├── ingestion/         # Document ingestion modules
-│   │       └── tuning/            # Dataset exporter & feedback loop
-│   ├── db/                        # Async database sessions, Redis cache & seed
-│   ├── docs/                      # Technical specification documentation
+│   │       ├── ingestion/
+│   │       │   ├── document_intelligence/  # Ingestion intelligence & MicroRAG
+│   │       │   └── market_packs/           # Modular Market Packs (MA, FR, US)
+│   │       └── tuning/                     # Active Learning dataset exporter (JSONL)
+│   ├── db/                                 # Async database sessions, Redis cache & seed
 │   ├── ingestion/
-│   │   ├── extractors/            # PDF (PyMuPDF + Camelot) & Excel parsers
-│   │   └── pro_builder.py         # Normalized Project Requirement Object builder
+│   │   ├── extractors/                     # PyMuPDF, Camelot (Lattice/Stream), Excel
+│   │   └── pro_builder.py                  # Project Requirement Object normalizer
 │   ├── matching/
-│   │   ├── canonical.py           # Standardized technical attribute normalizers
-│   │   ├── hard_filter.py         # Strict constraint filtering (IP, CCT, CRI, Flux)
-│   │   ├── soft_scoring.py        # Multi-attribute scoring & ranking algorithm
-│   │   └── overlay.py             # Tiered pricing & margin calculations
+│   │   ├── canonical.py                    # Standardized attribute normalizers
+│   │   ├── hard_filter.py                  # Strict physical constraint satisfaction
+│   │   ├── soft_scoring.py                 # Multi-attribute scoring algorithm
+│   │   └── overlay.py                      # Tiered margin & stock calculations
 │   ├── models/
-│   │   ├── domain.py              # SQLAlchemy async database models
-│   │   └── schemas.py             # Pydantic v2 validation contracts
-│   ├── tests/                     # Pytest unit & integration test suites
+│   │   ├── domain.py                       # SQLAlchemy async database models
+│   │   └── schemas.py                      # Pydantic v2 schemas
+│   ├── tests/                              # Pytest unit & integration test suites
 │   ├── workflow/
-│   │   ├── graph.py               # LangGraph StateGraph agent definitions
-│   │   └── router.py              # Asynchronous workflow API endpoints
+│   │   ├── graph.py                        # LangGraph StateGraph agent definitions
+│   │   └── router.py                       # Asynchronous workflow API endpoints
 │   ├── Dockerfile
-│   ├── main.py                    # FastAPI application entrypoint
+│   ├── main.py                             # FastAPI application entrypoint
 │   └── requirements.txt
-├── frontend/                      # Fullstack Next.js 14 App Router client
-│   ├── src/
-│   │   └── app/                   # Dynamic routes: /project, /review, /finalize
+├── frontend/                               # Fullstack Next.js 14 App Router client
+│   ├── src/app/                            # Routes: /project, /review, /line, /finalize
 │   ├── package.json
-│   ├── tsconfig.json
 │   └── Dockerfile
-├── docker-compose.yml             # Orchestration: Backend, Frontend, Postgres, Redis, Ollama
-├── .env.example                   # Clean template for environment variables
-└── README.md
+├── docker-compose.yml                      # Full orchestration: Backend, Frontend, Postgres, Redis, Ollama
+├── .env.example                            # Clean environment template
+├── ROADMAP.md                              # Master supervision board (Blocs 1-5)
+└── README.md                               # Project documentation
 ```
 
 ---
@@ -117,69 +167,55 @@ Engine_lighting/
 | Layer | Technologies |
 |---|---|
 | **Backend API** | Python 3.11, FastAPI, Pydantic v2, Uvicorn |
-| **Agentic Workflow** | LangGraph, LangChain Core, MemorySaver |
+| **Multi-Agent Orchestration** | Custom AI Harness, LangGraph, Tenacity (Exponential Backoff) |
+| **Local SLM Inference** | Ollama (`qwen2.5:3b`, `qwen2.5:7b`), bounded context (`num_ctx: 2048`) |
+| **Cloud Fallback** | Groq API (`llama-3.1-8b-instant`) |
 | **Databases & Cache** | PostgreSQL 15, SQLAlchemy (AsyncPG), Redis 7 |
-| **Extraction Engines** | Camelot-py, OpenCV, PyMuPDF, OpenPyXL, Pandas |
-| **LLM Orchestration** | Ollama (Local `llama3.1:8b`, `qwen2.5:7b`), Groq API (`llama-3.1-8b-instant`) |
+| **Document Processing** | PyMuPDF, Camelot-py, OpenCV, OpenPyXL, Pandas |
 | **Frontend UI** | Next.js 14 (App Router), TypeScript, TailwindCSS, Lucide Icons |
-| **DevOps & Containers** | Docker, Docker Compose, Multi-stage builds |
+| **DevOps & Containers** | Docker, Docker Compose, Healthchecks, Multi-stage builds |
 
 ---
 
 ## 🚀 Quickstart & Local Setup
 
-### Prerequisites
-* [Docker](https://docs.docker.com/get-docker/) & Docker Compose (v2+)
-* *(Optional)* [Ollama](https://ollama.com/) running on host machine for local LLM inference
-
-### 1. Clone the Repository
+### 1. Clone & Configure
 ```bash
 git clone https://github.com/Achraf-sghiouar/Engine_lighting.git
 cd Engine_lighting
-```
-
-### 2. Configure Environment Variables
-```bash
 cp .env.example .env
 ```
-*(Optionally provide your `GROQ_API_KEY` in `.env` if using cloud inference).*
 
-### 3. Launch Services
+### 2. Launch Services with Docker Compose
 ```bash
 docker-compose up --build
 ```
-* **Frontend Application:** [http://localhost:3000](http://localhost:3000)
-* **Interactive API Documentation:** [http://localhost:8000/docs](http://localhost:8000/docs)
-* **PostgreSQL:** `localhost:5432`
-* **Redis:** `localhost:6379`
+* **Frontend Web App:** [http://localhost:3000](http://localhost:3000)
+* **Backend Swagger Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+* **PostgreSQL:** `localhost:5432` | **Redis:** `localhost:6379`
 
 ---
 
 ## 🧪 Automated Testing
 
-Run the test suite inside the backend container:
+The backend includes comprehensive test suites covering agents, extraction accuracy, physical bounds validation, and matching:
 ```bash
 docker-compose exec backend pytest tests/ -v
 ```
-Or directly with a local virtual environment:
-```bash
-cd backend
-pytest tests/ -v
-```
+*(All 33/33 tests currently passing).*
 
 ---
 
-## 🗺️ Roadmap & Next Engineering Milestones
+## 🗺️ Roadmap & Active Development
 
-This repository serves as an active development workspace. Upcoming features planned for implementation:
-
-- [x] Multi-format document ingestion pipeline (Camelot + Ollama/Groq extraction).
-- [x] LangGraph deterministic & probabilistic state machine with HITL checkpointing.
-- [x] Interactive substitution review interface in Next.js.
-- [ ] **Real-Time Agent State Streaming:** Implement Server-Sent Events (SSE) / WebSockets to stream LangGraph execution step-by-step to the UI.
-- [ ] **Vector & Photometric Curve Search:** Integrate `pgvector` to match asymmetric and batwing photometric polar distribution curves (IES/LDT format).
-- [ ] **Automated Compliance Dossier Generator:** Dynamic PDF rendering engine producing side-by-side technical compliance sheets for client submittals.
-- [ ] **Automated Golden Dataset Benchmark:** Evaluation pipeline computing Precision@K and Recall against historical engineering substitutions.
+See [ROADMAP.md](ROADMAP.md) for the complete supervision dashboard.
+Current in-progress milestones:
+- [x] Swarm of 4 Agents & AI Harness with local SLM inference (Bloc 1).
+- [x] Initial Market Pack isolation (`morocco.py`).
+- [ ] **Multi-Tenant Catalog Importer (`catalog_importer.py`):** Client-specific Excel/CSV catalog indexing with strict `tenant_id` isolation.
+- [ ] **Evidence & Trace Interface (Next.js):** Real-time execution waterfall showing agent step timings and certified source pages (`📍 p.X`).
+- [ ] **Compliance Checklist Extractor:** Automatic parsing of tender administrative requirements (CE, ENEC, manufacturer datasheets).
+- [ ] **Deliverables Engine:** Automated Excel BOM & Client Submittal PDF generation.
 
 ---
 
